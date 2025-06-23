@@ -3,7 +3,10 @@
 import axios from 'axios'
 import { Dates, Objects, Random, System, Types } from 'cafe-utility'
 
-main()
+main().catch(error => {
+    console.error(error)
+    process.exit(1)
+})
 
 async function main() {
     switch (process.argv[2]) {
