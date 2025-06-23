@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import axios from 'axios'
-import { Dates, Objects, System, Types } from 'cafe-utility'
+import { Dates, Objects, Random, System, Types } from 'cafe-utility'
 
 main()
 
@@ -22,13 +22,37 @@ async function main() {
             const code = Types.asNumber(process.argv[4])
             await runCodeEquals(codeUrl, code)
             break
+        case 'content-type-is':
+            const mimeUrl = Types.asUrl(process.argv[3])
+            const mimeType = Types.asString(process.argv[4])
+            await runContentTypeIs(mimeUrl, mimeType)
+            break
         case '3xx':
             const redirectUrl = Types.asUrl(process.argv[3])
             const location = Types.asString(process.argv[4])
             await run3xx(redirectUrl, location)
             break
+        case 'post-json':
+            const postUrl = Types.asUrl(process.argv[3])
+            const size = Types.asNumber(process.argv[4])
+            await postJsonData(postUrl, size)
+            break
         default:
             throw Error('Invalid command')
+    }
+}
+
+async function postJsonData(url: string, size: number) {
+    const buffer = Buffer.alloc(size)
+    for (let i = 0; i < size; i++) {
+        buffer[i] = Random.intBetween(0, 255)
+    }
+    const data = `{"value":"${buffer.toString('hex')}"}`
+    try {
+        const response = await axios.post(url, { data, timeout: 60_000 })
+        console.log(`Posted ${data.length} bytes to ${url}, response status: ${response.status}`)
+    } catch (error) {
+        console.error(`Failed to post ${data.length} bytes to ${url}:`, error)
     }
 }
 
@@ -57,6 +81,15 @@ async function runCodeEquals(url: string, code: number) {
     const response = await axios.get(url, { timeout: 1000, validateStatus: () => true, maxRedirects: 0 })
     if (response.status !== code) {
         throw Error(`Expected ${url} to return ${code} but got ${response.status}`)
+    }
+    console.log('Success')
+}
+
+async function runContentTypeIs(url: string, mimeType: string) {
+    const response = await axios.get(url, { timeout: 1000, validateStatus: () => true, maxRedirects: 0 })
+    const contentType = response.headers['content-type']
+    if (contentType !== mimeType) {
+        throw Error(`Expected content type to be ${mimeType} but got ${contentType}`)
     }
     console.log('Success')
 }
