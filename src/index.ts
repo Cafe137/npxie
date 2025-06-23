@@ -48,12 +48,8 @@ async function postJsonData(url: string, size: number) {
         buffer[i] = Random.intBetween(0, 255)
     }
     const data = `{"value":"${buffer.toString('hex')}"}`
-    try {
-        const response = await axios.post(url, { data, timeout: 60_000 })
-        console.log(`Posted ${data.length} bytes to ${url}, response status: ${response.status}`)
-    } catch (error) {
-        console.error(`Failed to post ${data.length} bytes to ${url}:`, error)
-    }
+    const response = await axios.post(url, { data, timeout: 60_000 })
+    console.log(`Posted ${data.length} bytes to ${url}, response status: ${response.status}`)
 }
 
 async function runAwait(url: string) {
