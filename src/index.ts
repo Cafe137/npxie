@@ -2,6 +2,7 @@
 
 import axios from 'axios'
 import { Dates, Objects, Random, System, Types } from 'cafe-utility'
+import { execSync } from 'child_process'
 
 main().catch(error => {
     console.error(error)
@@ -40,6 +41,11 @@ async function main() {
             const size = Types.asNumber(process.argv[4])
             await postJsonData(postUrl, size)
             break
+        case 'eval-and-expect':
+            const command = Types.asString(process.argv[3])
+            const expectedSubstring = Types.asString(process.argv[4])
+            await runEvalAndExpect(command, expectedSubstring)
+            break
         default:
             throw Error('Invalid command')
     }
@@ -61,8 +67,7 @@ async function runAwait(url: string) {
             await axios.get(url, { timeout: 1000 })
             return true
         },
-        Dates.seconds(1),
-        5
+        { attempts: 5, waitMillis: Dates.seconds(1) }
     )
     console.log('Success')
 }
@@ -102,6 +107,14 @@ async function run3xx(url: string, location: string) {
     }
     if (locationHeader !== location) {
         throw Error(`Expected location header to be ${location} but got ${locationHeader}`)
+    }
+    console.log('Success')
+}
+
+async function runEvalAndExpect(command: string, expectedSubstring: string) {
+    const output = execSync(command, { encoding: 'utf8', timeout: Dates.seconds(60) })
+    if (!output.includes(expectedSubstring)) {
+        throw Error(`Expected output to contain "${expectedSubstring}" but got "${output}"`)
     }
     console.log('Success')
 }
