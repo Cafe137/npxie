@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import axios from 'axios'
-import { Dates, Objects, Random, System, Types } from 'cafe-utility'
+import { Dates, Objects, Optional, Random, Strings, System, Types } from 'cafe-utility'
 import { execSync } from 'child_process'
+import { readFile } from 'fs/promises'
 
 main().catch(error => {
     console.error(error)
@@ -45,6 +46,15 @@ async function main() {
             const command = Types.asString(process.argv[3])
             const expectedSubstring = Types.asString(process.argv[4])
             await runEvalAndExpect(command, expectedSubstring)
+            break
+        case 'coverage-comparison':
+            const repository = Types.asString(process.argv[3])
+            const baseBranch = Types.asString(process.argv[4])
+            const currentBranch = Types.asString(process.argv[5])
+            const path = Types.asString(process.argv[6])
+            const issueNumber = Types.asNumber(process.argv[7])
+            const authorization = Types.asString(process.argv[8])
+            await runCoverageDiffer(repository, baseBranch, currentBranch, path, issueNumber, authorization)
             break
         default:
             throw Error('Invalid command')
@@ -117,4 +127,128 @@ async function runEvalAndExpect(command: string, expectedSubstring: string) {
         throw Error(`Expected output to contain "${expectedSubstring}" but got "${output}"`)
     }
     console.log('Success')
+}
+
+async function runCoverageDiffer(
+    repository: string,
+    baseBranch: string,
+    currentBranch: string,
+    path: string,
+    issueNumber: number,
+    authorization: string
+) {
+    const coverageOld = await githubRead(repository, baseBranch, path, authorization)
+    const coverageNew = await readFile(path, 'utf8')
+    const comparison = compareCoverages(JSON.parse(coverageOld.getOrFallback(() => '{}')), JSON.parse(coverageNew))
+    await githubComment(repository, issueNumber, convertCoverageComparisonToMarkdownTable(comparison), authorization)
+    await githubCommit(
+        repository,
+        currentBranch,
+        path,
+        JSON.stringify(comparison, null, 2),
+        'test: update test coverage',
+        authorization
+    )
+}
+
+function compareCoverages(coverageOld: CoverageSummary, coverageNew: CoverageSummary): CoverageComparison {
+    const diff: CoverageComparison = {}
+    for (const file in coverageNew) {
+        const key = file === 'total' ? 'Total' : Strings.after(file, '/src/')
+        if (!key) {
+            throw Error(`Invalid file name: ${file}`)
+        }
+        diff[key] = {
+            coveredNow: coverageNew[file].lines.covered,
+            totalNow: coverageNew[file].lines.total,
+            coveredBefore: 0,
+            totalBefore: 0
+        }
+        if (coverageOld[file]) {
+            diff[key].coveredBefore = coverageOld[file].lines.covered
+            diff[key].totalBefore = coverageOld[file].lines.total
+        }
+    }
+    return diff
+}
+
+function convertCoverageComparisonToMarkdownTable(comparison: CoverageComparison): string {
+    let table = '| File | Coverage Now | Coverage Before | Delta% | Rating |\n'
+    table += '|---|---|---|---|---|\n'
+    for (const file in comparison) {
+        const data = comparison[file]
+        const pctBefore = (data.coveredBefore / data.totalBefore) * 100 || 0
+        const pctNow = (data.coveredNow / data.totalNow) * 100 || 0
+        const delta = (pctNow - pctBefore).toFixed(2)
+        const rating = pctNow < pctBefore ? '🔴' : pctNow > pctBefore ? '🟢' : ''
+        table += `| ${file} | ${data.coveredNow} / ${data.totalNow} | ${data.coveredBefore} / ${data.totalBefore} | ${delta} | ${rating} |\n`
+    }
+    return table
+}
+
+async function githubRead(
+    repository: string,
+    branch: string,
+    path: string,
+    authorization: string
+): Promise<Optional<string>> {
+    const result = await axios.get(`https://api.github.com/repos/${repository}/contents/${path}`, {
+        params: { ref: branch },
+        headers: { Authorization: `Bearer ${authorization}` },
+        timeout: Dates.seconds(10),
+        validateStatus: status => status === 200 || status === 404
+    })
+    if (result.status === 404) {
+        return Optional.empty()
+    }
+    return Optional.of(Buffer.from(result.data.content, 'base64').toString('utf8'))
+}
+
+async function githubComment(repository: string, issueNumber: number, body: string, authorization: string) {
+    const result = await axios.post(
+        `https://api.github.com/repos/${repository}/issues/${issueNumber}/comments`,
+        { body },
+        { headers: { Authorization: `Bearer ${authorization}` }, timeout: Dates.seconds(10) }
+    )
+    return result.data
+}
+
+async function githubCommit(
+    repository: string,
+    branch: string,
+    path: string,
+    content: string,
+    message: string,
+    authorization: string
+) {
+    await axios.put(
+        `https://api.github.com/repos/${repository}/contents/${path}`,
+        { message, content: Buffer.from(content).toString('base64'), branch },
+        { headers: { Authorization: `Bearer ${authorization}` }, timeout: Dates.seconds(10) }
+    )
+}
+
+interface CoverageComparison {
+    [file: string]: {
+        coveredNow: number
+        totalNow: number
+        coveredBefore: number
+        totalBefore: number
+    }
+}
+
+interface Coverage {
+    total: number
+    covered: number
+    skipped: number
+    pct: number
+}
+
+interface CoverageSummary {
+    [file: string]: {
+        lines: Coverage
+        statements: Coverage
+        functions: Coverage
+        branches: Coverage
+    }
 }
