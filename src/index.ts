@@ -54,7 +54,7 @@ async function main() {
             const path = Types.asString(process.argv[6])
             const issueNumber = Types.asNumber(process.argv[7])
             const authorization = Types.asString(process.argv[8])
-            await runCoverageDiffer(repository, baseBranch, currentBranch, path, issueNumber, authorization)
+            await runCoverageComparison(repository, baseBranch, currentBranch, path, issueNumber, authorization)
             break
         default:
             throw Error('Invalid command')
@@ -129,7 +129,7 @@ async function runEvalAndExpect(command: string, expectedSubstring: string) {
     console.log('Success')
 }
 
-async function runCoverageDiffer(
+async function runCoverageComparison(
     repository: string,
     baseBranch: string,
     currentBranch: string,
@@ -139,15 +139,22 @@ async function runCoverageDiffer(
 ) {
     const coverageOld = await githubRead(repository, baseBranch, path, authorization)
     const coverageNew = await readFile(path, 'utf8')
-    const comparison = compareCoverages(JSON.parse(coverageOld.getOrFallback(() => '{}')), JSON.parse(coverageNew))
-    await githubComment(repository, issueNumber, convertCoverageComparisonToMarkdownTable(comparison), authorization)
+    const comparison = compareCoverages(
+        coverageOld.getOrFallback(() => emptyCoverageFile()).asJson(),
+        JSON.parse(coverageNew)
+    )
+    await deleteMarkedGithubComments(repository, issueNumber, '<!-- coverage-report -->', authorization)
+    const table = convertCoverageComparisonToMarkdownTable(comparison)
+    await githubComment(repository, issueNumber, '<!-- coverage-report -->\n' + table, authorization)
+    const existingCoverage = await githubRead(repository, currentBranch, path, authorization)
     await githubCommit(
         repository,
         currentBranch,
         path,
-        JSON.stringify(comparison, null, 2),
+        coverageNew,
         'test: update test coverage',
-        authorization
+        authorization,
+        existingCoverage.value ? existingCoverage.value.sha : undefined
     )
 }
 
@@ -186,12 +193,22 @@ function convertCoverageComparisonToMarkdownTable(comparison: CoverageComparison
     return table
 }
 
+interface GithubFile {
+    sha: string
+    content: string
+    asJson(): ReturnType<typeof JSON.parse>
+}
+
+function emptyCoverageFile(): GithubFile {
+    return { sha: '', content: '{}', asJson: () => JSON.parse('{}') }
+}
+
 async function githubRead(
     repository: string,
     branch: string,
     path: string,
     authorization: string
-): Promise<Optional<string>> {
+): Promise<Optional<GithubFile>> {
     const result = await axios.get(`https://api.github.com/repos/${repository}/contents/${path}`, {
         params: { ref: branch },
         headers: { Authorization: `Bearer ${authorization}` },
@@ -201,7 +218,8 @@ async function githubRead(
     if (result.status === 404) {
         return Optional.empty()
     }
-    return Optional.of(Buffer.from(result.data.content, 'base64').toString('utf8'))
+    const content = Buffer.from(result.data.content, 'base64').toString('utf8')
+    return Optional.of({ sha: result.data.sha, content, asJson: () => JSON.parse(content) })
 }
 
 async function githubComment(repository: string, issueNumber: number, body: string, authorization: string) {
@@ -213,17 +231,38 @@ async function githubComment(repository: string, issueNumber: number, body: stri
     return result.data
 }
 
+async function deleteMarkedGithubComments(
+    repository: string,
+    issueNumber: number,
+    marker: string,
+    authorization: string
+): Promise<void> {
+    const comments = await axios.get(`https://api.github.com/repos/${repository}/issues/${issueNumber}/comments`, {
+        headers: { Authorization: `Bearer ${authorization}` },
+        timeout: Dates.seconds(10)
+    })
+    for (const comment of comments.data) {
+        if (comment.body.includes(marker)) {
+            await axios.delete(`https://api.github.com/repos/${repository}/issues/comments/${comment.id}`, {
+                headers: { Authorization: `Bearer ${authorization}` },
+                timeout: Dates.seconds(10)
+            })
+        }
+    }
+}
+
 async function githubCommit(
     repository: string,
     branch: string,
     path: string,
     content: string,
     message: string,
-    authorization: string
+    authorization: string,
+    sha?: string
 ) {
     await axios.put(
         `https://api.github.com/repos/${repository}/contents/${path}`,
-        { message, content: Buffer.from(content).toString('base64'), branch },
+        { message, content: Buffer.from(content).toString('base64'), branch, sha },
         { headers: { Authorization: `Bearer ${authorization}` }, timeout: Dates.seconds(10) }
     )
 }
