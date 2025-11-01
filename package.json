@@ -7,18 +7,19 @@
     },
     "main": "dist/index.js",
     "scripts": {
-        "build": "tsc"
+        "build": "tsc",
+        "check": "tsc --noEmit"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "type": "commonjs",
     "dependencies": {
-        "axios": "^0.30.0",
-        "cafe-utility": "^31.0.0"
+        "axios": "^0.30.2",
+        "cafe-utility": "^33.3.1"
     },
     "devDependencies": {
-        "@types/node": "^22.14.0",
-        "typescript": "^5.8.3"
+        "@types/node": "^24.9.2",
+        "typescript": "^5.9.3"
     }
 }
