@@ -150,7 +150,7 @@ async function runCoverageComparison(
         currentBranch,
         path,
         coverageNew,
-        'test: update test coverage',
+        'test: update test coverage [skip ci]',
         authorization,
         existingCoverage.value ? existingCoverage.value.sha : undefined
     )
