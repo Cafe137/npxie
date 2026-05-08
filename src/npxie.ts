@@ -45,12 +45,11 @@ export async function main(argv: string[]) {
             break
         case 'coverage-comparison':
             const repository = Types.asString(argv[3])
-            const baseBranch = Types.asString(argv[4])
-            const currentBranch = Types.asString(argv[5])
-            const path = Types.asString(argv[6])
-            const issueNumber = Types.asNumber(argv[7])
-            const authorization = Types.asString(argv[8])
-            await runCoverageComparison(repository, baseBranch, currentBranch, path, issueNumber, authorization)
+            const basePath = Types.asString(argv[4])
+            const path = Types.asString(argv[5])
+            const issueNumber = Types.asNumber(argv[6])
+            const authorization = Types.asString(argv[7])
+            await runCoverageComparison(repository, basePath,  path, issueNumber, authorization)
             break
         default:
             throw Error('Invalid command')
@@ -129,13 +128,12 @@ async function runEvalAndExpect(command: string, expectedSubstrings: string[]) {
 
 async function runCoverageComparison(
     repository: string,
-    baseBranch: string,
-    currentBranch: string,
+    basePath: string,
     path: string,
     issueNumber: number,
     authorization: string
 ) {
-    const coverageOld = await githubRead(repository, baseBranch, path, authorization)
+    const coverageOld = await readFile(basePath, 'utf8')
     const coverageNew = await readFile(path, 'utf8')
     const comparison = compareCoverages(
         coverageOld.getOrFallback(() => emptyCoverageFile()).asJson(),
@@ -144,16 +142,6 @@ async function runCoverageComparison(
     await deleteMarkedGithubComments(repository, issueNumber, '<!-- coverage-report -->', authorization)
     const table = convertCoverageComparisonToMarkdownTable(comparison)
     await githubComment(repository, issueNumber, '<!-- coverage-report -->\n' + table, authorization)
-    const existingCoverage = await githubRead(repository, currentBranch, path, authorization)
-    await githubCommit(
-        repository,
-        currentBranch,
-        path,
-        coverageNew,
-        'test: update test coverage',
-        authorization,
-        existingCoverage.value ? existingCoverage.value.sha : undefined
-    )
 }
 
 function compareCoverages(coverageOld: CoverageSummary, coverageNew: CoverageSummary): CoverageComparison {
