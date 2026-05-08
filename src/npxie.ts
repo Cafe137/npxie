@@ -136,7 +136,7 @@ async function runCoverageComparison(
     const coverageOld = await readFile(basePath, 'utf8')
     const coverageNew = await readFile(path, 'utf8')
     const comparison = compareCoverages(
-        coverageOld.getOrFallback(() => emptyCoverageFile()).asJson(),
+        JSON.parse(coverageOld),
         JSON.parse(coverageNew)
     )
     await deleteMarkedGithubComments(repository, issueNumber, '<!-- coverage-report -->', authorization)
